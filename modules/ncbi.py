@@ -74,7 +74,7 @@ class Ncbi:
                         
                         # Escrever os resultados no arquivo
                         file.write(efetch_out)
-            except IOError as err:
+            except IOError as e:
                 print(f"Não foi possível abrir o arquivo! Error: {e}")
                 raise
 
