@@ -1,83 +1,139 @@
-import requests
+import os
 import re
+import requests,logging,json
 import xml.dom.minidom as minidom
 from html import unescape
-from modules.utilities import Utilities
+from modules.utilities import datetimestamp,load_env
 
-BASE_URL = Utilities.load_env(group='ncbi')['NCBI_API_BASE_URL']
+BASE_URL = load_env(group='ncbi')['BASE_URL']
+BASE_URL_EINFO = load_env(group='einfo')['BASE_URL']
+BASE_URL_ESEARCH = load_env(group='esearch')['BASE_URL']
+logging.basicConfig(level=logging.INFO,format=f'{datetimestamp()} (%(funcName)s) %(levelname)s: %(message)s')
 
-class Ncbi:
+def einfo(entrez_database:str=None,retmode:str='xml',save_in:str=None):
     '''
+    Functions
+    ---------
+    - Provides a list of the names of all valid Entrez databases.
+    - Provides statistics for a single database, including lists of indexing fields and available link names.
+
+    Parameters
+    -----------
+    entrez_database: str or None
+        The name of the Entrez database for which to retrieve statistics. If None, retrieves a list of all valid databases.
+    retmode: str, optional
+        The format of the returned data (default is 'xml'). Valid values: 'xml', 'json', etc.
+    save_in: str or None, optional
+        If specified, the response content will be saved to a file at the specified path.
+
+    Returns
+    -------
+    bytes or None
+        If save_in is None, returns the response. If save_in is specified, saves the content to the specified path and returns None.
     '''
+    retmode = retmode.lower()
+    possible_retmode = ['xml','json']
 
-    @staticmethod
-    def basic_search(filename:str,database:str,query:str,use_history:str=None):
-        '''
-        Método para extração de dados 
-        '''
-        full_url = f"{BASE_URL}esearch.fcgi?db={database}&term={query}"
-        use_history = True if use_history == 'y' else False
-        full_url = full_url + "&usehistory=y" if use_history else full_url
+    if retmode not in possible_retmode:
+        logging.error("This retmode isn't possible")
+        return
 
-        try:
-            response = requests.get(url=full_url)
-            response.raise_for_status()
-        except requests.exceptions.ConnectionError as e:
-            raise SystemExit(e)
-
-        text = ''.join(line.strip() for line in response.text.splitlines())
-        dom  = minidom.parseString(string=text)
-        xml = dom.toprettyxml(indent="    ")
-        xml_decodificado = unescape(xml)
-        with open(filename,"w", encoding="utf-8") as file:
-            file.write(xml_decodificado)
-
-    @staticmethod
-    def download_all_records(database:str,query:str,filename:str,use_history:str=None):
-        '''
-        Método para extração de dados 
-        '''
-        url_search = f'{BASE_URL}esearch.fcgi?db={database}&term={query}'
-        use_history = True if use_history == 'y' else False
-        url_search = url_search + "&usehistory=y" if use_history else url_search
-
-        try:
-            # Enviar a solicitação esearch
-            response_esearch = requests.get(url_search)
-            response_esearch.raise_for_status()  # Verifica se houve um erro na solicitação
-            output = response_esearch.text
-
-            # Parse WebEnv, QueryKey and Count (# records retrieved)
-            match_web = re.search(r'<WebEnv>(\S+)<\/WebEnv>', output)
-            web = match_web.group(1) if match_web else None
-            match_key = re.search(r'<QueryKey>(\d+)<\/QueryKey>', output)
-            key = match_key.group(1) if match_key else None
-            match_count = re.search(r'<Count>(\d+)<\/Count>', output)
-            count = match_count.group(1) if match_count else None
-
-            print(f"web: {web} | Key: {key} | count: {count}")
-
-            # Abrir o arquivo de saída para escrita
-            try:
-                with open(filename, 'w') as file:
-                    # Recuperar os dados em lotes de 500
-                    retmax = 500
-                    for retstart in range(0, int(count), retmax):
-                        # Montar a URL para efetch com rettype=xml
-                        url_efetch = f'{BASE_URL}efetch.fcgi?db={database}&WebEnv={web}&query_key={key}'
-                        url_efetch += f'&retstart={retstart}&retmax={retmax}&rettype=xml&retmode=text'
-                        
-                        # Enviar a solicitação efetch
-                        response_efetch = requests.get(url_efetch)
-                        response_efetch.raise_for_status()  # Verifica se houve um erro na solicitação
-                        efetch_out = response_efetch.text
-                        
-                        # Escrever os resultados no arquivo
-                        file.write(efetch_out)
-            except IOError as e:
-                print(f"Não foi possível abrir o arquivo! Error: {e}")
-                raise
-
-        except requests.exceptions.RequestException as e:
-            print(f'Erro na solicitação: {e}')
+    if save_in != None:
+        if not (os.path.isdir(save_in) and os.access(save_in, os.W_OK)):
+            logging.error(f'The specified path "{save_in}" is not a valid directory or does not have write permissions.')
             raise
+
+    if entrez_database is None:
+        url = f'{BASE_URL_EINFO}?retmode={retmode}'
+    else:
+        url = f'{BASE_URL_EINFO}/?db={entrez_database.lower()}&retmode={retmode}'
+    
+    try:
+
+        response = requests.get(url=url)
+        response.raise_for_status()
+        logging.info("Resquest successfull!!")
+
+        if save_in is not None:
+            full_path = os.path.join(save_in,f'einfo.{retmode}')
+            
+            match(retmode):
+                case 'json':
+                    data = json.loads(response.content)
+                    with open(full_path,'w+',encoding='utf-8') as file:
+                        json.dump(data,file,ensure_ascii=False,indent=2)
+                case 'xml':
+                    with open(full_path,'w+') as file:
+                        file.write(response.text)
+
+            logging.info(f"The response was saved in {full_path}!!")
+            return None
+        else:
+            return response
+
+    except Exception as e:
+
+        logging.error(f"An error occurred: {e}")
+        return
+
+def esearch(database:str,term:str,use_history:bool=False,WebEnv:str=None,query_key:str=None,retmax:int=20):
+    '''
+    Functions
+    ---------
+    - Provides a list of UIDs matching a text query.
+    - Posts the results of a search on the History server.
+    - Downloads all UIDs from a dataset stored on the History server.
+    - Combines or limits UID datasets stored on the History server.
+    - Sorts sets of UIDs.
+
+    Required parameters
+    -------------------
+    database: str
+        Database to search. 
+        Value must be a valid Entrez database name (default = pubmed).
+    term: str
+        Entrez text query.
+        All special characters must be URL encoded.
+        Spaces may be replaced by '+' signs.
+    
+    Optional parameters - History Server
+    ------------------------------------
+    use_history: Bool, default False
+        When use_history is True,  ESearch will post the UIDs 
+        resulting from the search operation onto the History server 
+        so that they can be used directly in a subsequent E-utility call.
+        Also, usehistory must be set to True for ESearch to interpret 
+        query key values included in term or to accept a WebEnv as input.
+    Optional parameters - Retrievial
+    --------------------------------
+    retmax: int, default 20
+        Total number of UIDs from the retrieved set to be shown in the XML output.
+    rettype:
+    '''
+    list_of_valid_databases = dict(json.loads(einfo(retmode='json').content)).get('einforesult').get('dblist')
+    logging.info("Checking if the database is valid")
+    if database not in list_of_valid_databases:
+        logging.error(f"The {database} is not a valid database!!")
+        raise ValueError(f"The {database} is not a valid database!!")
+    
+    # Necessary url
+    url = f'{BASE_URL_ESEARCH}?db={database.lower()}&term={term}'
+
+    # Oprtional url
+    if WebEnv != None:
+        url += f'&WebEnv={WebEnv}'
+    if query_key != None:
+        url += f'&query_key={query_key}'
+    if retmax != 20 and retmax <= 10000:
+        url += f'&retmax={retmax}'
+    if use_history:
+        url += '&usehistory=y'
+    
+    try:
+        response = requests.get(url=url)
+        response.raise_for_status()
+        logging.info("Resquest successfull!!")
+        return response
+    except requests.exceptions.RequestException as e:
+        logging.error(f"An error occurred: {e}")
+        return None
