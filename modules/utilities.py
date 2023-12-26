@@ -54,6 +54,9 @@ def load_env(group:str) -> dict:
         },
         'esearch':{
             'BASE_URL':os.getenv('ESEARCH_API_BASE_URL')
+        },
+        'efetch':{
+            'BASE_URL':os.getenv('EFETCH_API_BASE_URL')
         }
     }
 

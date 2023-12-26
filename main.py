@@ -1,3 +1,6 @@
-from modules.ncbi import esearch
+from modules.ncbi import esearch,efetch
 
-print(esearch(database='pubmed',term='asthma',use_history=True,retmax=3).text)
+#response_esearch = esearch(database='pubmed',term='cancer',reldate=60,datetype='edat',retmax=100, use_history=True).text
+response_efetch = efetch(database='pubmed',id='38146690')
+with open('teste.txt','wb') as file:
+    file.write(response_efetch.content)
