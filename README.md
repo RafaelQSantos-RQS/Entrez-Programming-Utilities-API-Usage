@@ -1,2 +1,2 @@
-# ncbi
- Repositório onde abrigará códigos relacionados a API do NCBI
+# Entrez Programming Utilities (API Usage)
+Repository where it will house codes related to Entrez Programming Utilities in Python.
