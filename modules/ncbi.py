@@ -180,26 +180,6 @@ def esearch(database:str,
         logging.error(msg=msg)
         raise ValueError(msg=msg)
     
-    list_of_rettype = ['uilist','count']
-    if rettype not in list_of_rettype:
-        msg = f"The {rettype} is not a valid rettype!!"
-        logging.error(msg=msg)
-        raise ValueError(msg)
-    
-    list_of_sort_methods = ['pub_date','Author','JournalName','relevance',None]
-    if sort not in list_of_sort_methods:
-        msg = f"The {sort} is not a valid sort method!!"
-        logging.error(msg=msg)
-        raise ValueError(msg)
-    
-    request_for_datetype = dict(json.loads(einfo(entrez_database='pubmed',retmode='json').content)).get("einforesult").get("dbinfo")[0].get("fieldlist")
-    list_of_datetype = []
-    for dicionario in request_for_datetype:
-        list_of_datetype.append(dicionario.get("name").lower())
-    if datetype != None and datetype not in list_of_datetype:
-        msg = f"The {datetype} is not a valid datetype!!"
-        logging.error(msg=msg)
-        raise ValueError(msg)
     
     # Necessary url
     url = f'{BASE_URL_ESEARCH}?db={database.lower()}&term={term}'
@@ -214,16 +194,33 @@ def esearch(database:str,
     if retmax != 20 and retmax <= 10000:
         url += f'&retmax={retmax}'
     if rettype != None:
+        list_of_rettype = ['uilist','count']
+        if rettype not in list_of_rettype:
+            msg = f"The {rettype} is not a valid rettype!!"
+            logging.error(msg=msg)
+            raise ValueError(msg)
         url += f"&rettype={rettype}"
     if retmode != None:
         url += f"&retmode={retmode}"
     if sort != None:
+        list_of_sort_methods = ['pub_date','Author','JournalName','relevance',None]
+        if sort not in list_of_sort_methods:
+            msg = f"The {sort} is not a valid sort method!!"
+            logging.error(msg=msg)
+            raise ValueError(msg)
         url += f"&sort={sort}"
     if field != None:
         url += f"&field={field}"
     if idtype != None:
         url += f"&idtype={idtype}"
     if datetype != None:
+        logging.info("Checking if the datetype is valid")
+        request_for_datetype = dict(json.loads(einfo(entrez_database='pubmed',retmode='json').content)).get("einforesult").get("dbinfo")[0].get("fieldlist")
+        list_of_datetype = [dicionario.get("name").lower() for dicionario in request_for_datetype]
+        if datetype != None and datetype not in list_of_datetype:
+            msg = f"The {datetype} is not a valid datetype!!"
+            logging.error(msg=msg)
+            raise ValueError(msg)
         url += f"&datetype={datetype}"
     if reldate != None:
         url += f"&reldate={reldate}"
@@ -245,7 +242,17 @@ def esearch(database:str,
         return None
     
 def efetch(database:str,
-           id:str):
+           id:str,
+           query_key:int=None,
+           WebEnv:str=None,
+           retmode:str=None,
+           rettype:str=None,
+           retstart:int=None,
+           retmax:int=None,
+           strand:int=None,
+           seq_start:int=None,
+           seq_stop:int=None,
+           save_in:int=None):
     '''
     Functions
     ---------
@@ -264,11 +271,77 @@ def efetch(database:str,
         UID list. Either a single UID or a comma-delimited list of UIDs may be provided.
         All of the UIDs must be from the database specified by database.
         Max Id is 200.
-    '''
+    
+    Required Parameters – Used only when input is from the Entrez History server
+    ----------------------------------------------------------------------------
+    query_key: int
+        This integer specifies which of the UID lists attached to the given Web Environment will be used as input to EFetch.
+        Query keys are obtained from the output of previous ESearch, EPost or ELInk calls.
+        The query_key parameter must be used in conjunction with WebEnv.
+    WebEnv: str
+        This parameter specifies the Web Environment that contains the UID list to be provided as input to EFetch.
+        Usually this WebEnv value is obtained from the output of a previous ESearch, EPost or ELink call. 
+        he WebEnv parameter must be used in conjunction with query_key.
+    
+    Optional Parameters – Retrieval
+    -------------------------------
+    retmode: str
+        This parameter specifies the data format of the records returned, such as plain text, HMTL or XML.
+    rettype: str
+        This parameter specifies the record view returned, such as Abstract or MEDLINE from PubMed, or GenPept or FASTA from protein.
+    retstart: int
+        Sequential index of the first record to be retrieved (default=0, corresponding to the first record of the entire set).
+        This parameter can be used in conjunction with retmax to download an arbitrary subset of records from the input set.
+    retmax: int
+        Total number of records from the input set to be retrieved, up to a maximum of 10,000.
 
-    url = f'{BASE_URL_EFETCH}?db={database}&id={id}&retmode=text&rettype=abstract'
+    Optional Parameters – Sequence Databases
+    ----------------------------------------
+    strand: int
+        Strand of DNA to retrieve.
+        Available values are "1" for the plus strand and "2" for the minus strand.
+    seq_start: int
+        First sequence base to retrieve. 
+        The value should be the integer coordinate of the first desired base, with "1" representing the first base of the seqence.
+    seq_stop: int
+        Last sequence base to retrieve. 
+        The value should be the integer coordinate of the last desired base, with "1" representing the first base of the seqence.
+    complexity: int
+        Data content to return.
+        Many sequence records are part of a larger data structure or "blob", and the complexity parameter determines how much of that blob to return.
+        For example, an mRNA may be stored together with its protein product.
+        The available values are as follows:\n
+        0 - Entire blob\n
+        1 - bioseq\n
+        2 - minimal bioseq-set\n
+        3 - minimal nuc-prot\n
+        4 - minimal pub-set
+    '''
+    logging.info("Building the essencial url")
+    url = f'{BASE_URL_EFETCH}?db={database}&id={id}'
+
+    logging.info("Building a optional features")
+    if query_key != None:
+        url += f"&query_key={query_key}"
+    if WebEnv != None:
+        url +=f"&WebEnv={WebEnv}"
+    if retmode != None:
+        url += f"&retmode={retmode}"
+    if rettype != None:
+        url += f"&rettype={rettype}"
+    if retstart != None:
+        url += f"&retstart={retstart}"
+    if retmax != None:
+        url += f"&retmax={retmax}"
+    if strand != None:
+        url += f"&strand={strand}"
+    if seq_start != None:
+        url += f"&seq_start={seq_start}"
+    if seq_stop != None:
+        url += f"&seq_stop={seq_stop}"
 
     # Request
+    logging.info("Trying request")
     try:
         response = requests.get(url=url)
         response.raise_for_status()
