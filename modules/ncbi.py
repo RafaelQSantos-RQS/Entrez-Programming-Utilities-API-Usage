@@ -1,16 +1,16 @@
 import os
 import requests,logging,json
+from typing import Literal,Optional,Union
 from modules.utilities import datetimestamp,load_env
 
 BASE_URL = load_env(group='ncbi')['BASE_URL']
 BASE_URL_EINFO = load_env(group='einfo')['BASE_URL']
 BASE_URL_ESEARCH = load_env(group='esearch')['BASE_URL']
 BASE_URL_EFETCH = load_env(group='efetch')['BASE_URL']
-logging.basicConfig(level=logging.INFO,format=f'{datetimestamp()} (%(funcName)s) %(levelname)s: %(message)s')
 
 def einfo(entrez_database:str=None,
-          retmode:str='xml',
-          save_in:str=None):
+          retmode:Literal['xml','json']='xml',
+          save_in:str=None) -> Optional[requests.Response]:
     '''
     Functions
     ---------
@@ -21,7 +21,7 @@ def einfo(entrez_database:str=None,
     -----------
     entrez_database: str or None
         The name of the Entrez database for which to retrieve statistics. If None, retrieves a list of all valid databases.
-    retmode: str, optional
+    retmode: str or None, optional
         The format of the returned data (default is 'xml'). Valid values: 'xml', 'json', etc.
     save_in: str or None, optional
         If specified, the response content will be saved to a file at the specified path.
@@ -31,10 +31,8 @@ def einfo(entrez_database:str=None,
     bytes or None
         If save_in is None, returns the response. If save_in is specified, saves the content to the specified path and returns None.
     '''
-    retmode = retmode.lower()
-    possible_retmode = ['xml','json']
 
-    if retmode not in possible_retmode:
+    if retmode not in ['xml','json']:
         logging.error("This retmode isn't possible")
         return
 
@@ -43,37 +41,37 @@ def einfo(entrez_database:str=None,
             logging.error(f'The specified path "{save_in}" is not a valid directory or does not have write permissions.')
             raise
 
-    if entrez_database is None:
-        url = f'{BASE_URL_EINFO}?retmode={retmode}'
-    else:
-        url = f'{BASE_URL_EINFO}/?db={entrez_database.lower()}&retmode={retmode}'
+    params = {'db': entrez_database} if entrez_database is not None else {}
+    params['retmode'] = retmode
     
     try:
-
-        response = requests.get(url=url)
+        url = BASE_URL_EINFO
+        response = requests.get(url=url,params=params)
         response.raise_for_status()
         logging.info("Resquest successfull!!")
 
-        if save_in is not None:
-            full_path = os.path.join(save_in,f'einfo.{retmode}')
-            
-            match(retmode):
-                case 'json':
-                    data = json.loads(response.content)
-                    with open(full_path,'w+',encoding='utf-8') as file:
-                        json.dump(data,file,ensure_ascii=False,indent=2)
-                case 'xml':
-                    with open(full_path,'w+') as file:
-                        file.write(response.text)
+        try:
+            if save_in is not None:
+                full_path = os.path.join(save_in,f'einfo.{retmode}')
+                
+                match(retmode):
+                    case 'json':
+                        data = json.loads(response.content)
+                        with open(full_path,'w+',encoding='utf-8') as file:
+                            json.dump(data,file,ensure_ascii=False,indent=2)
+                    case 'xml':
+                        with open(full_path,'w+') as file:
+                            file.write(response.text)
 
-            logging.info(f"The response was saved in {full_path}!!")
-            return None
-        else:
-            return response
+                logging.info(f"The response was saved in {full_path}!!")
+                return None
+            else:
+                return response
+        except Exception as save_error:
+            logging.error(f"Error while saving the file: {save_error}")
 
-    except Exception as e:
-
-        logging.error(f"An error occurred: {e}")
+    except requests.exceptions.RequestException as request_error:
+        logging.error(f"An error occurred: {request_error}")
         return
 
 def esearch(database:str,
@@ -83,15 +81,15 @@ def esearch(database:str,
             query_key:int=None,
             retstart:int=None,
             retmax:int=20,
-            rettype:str='uilist',
+            rettype:Literal['uilist', 'count']='uilist',
             retmode:str='xml',
-            sort:str=None,
+            sort:Literal['pub_date', 'Author', 'JournalName', 'relevance']=None,
             field:str=None,
             idtype:str=None,
             datetype:str=None,
             reldate:int=None,
             mindate:str=None,
-            maxdate:str=None):
+            maxdate:str=None) -> requests.Response | None:
     '''
     Functions
     ---------
@@ -175,74 +173,75 @@ def esearch(database:str,
     # Validations
     list_of_valid_databases = dict(json.loads(einfo(retmode='json').content)).get('einforesult').get('dblist')
     logging.info("Checking if the database is valid")
+    database = database.lower()
     if database not in list_of_valid_databases:
         msg = f"The {database} is not a valid database!!"
         logging.error(msg=msg)
         raise ValueError(msg=msg)
     
+    if rettype is not None and rettype not in ['uilist', 'count']:
+        msg = f"The {rettype} is not a valid rettype!!"
+        logging.error(msg=msg)
+        raise ValueError(msg)
     
-    # Necessary url
-    url = f'{BASE_URL_ESEARCH}?db={database.lower()}&term={term}'
-
-    # Oprtional url
-    if WebEnv != None:
-        url += f'&WebEnv={WebEnv}'
-    if query_key != None:
-        url += f'&query_key={query_key}'
-    if retstart != None:
-        url += f'&retstart={retstart}'
-    if retmax != 20 and retmax <= 10000:
-        url += f'&retmax={retmax}'
-    if rettype != None:
-        list_of_rettype = ['uilist','count']
-        if rettype not in list_of_rettype:
-            msg = f"The {rettype} is not a valid rettype!!"
-            logging.error(msg=msg)
-            raise ValueError(msg)
-        url += f"&rettype={rettype}"
-    if retmode != None:
-        url += f"&retmode={retmode}"
-    if sort != None:
-        list_of_sort_methods = ['pub_date','Author','JournalName','relevance',None]
-        if sort not in list_of_sort_methods:
-            msg = f"The {sort} is not a valid sort method!!"
-            logging.error(msg=msg)
-            raise ValueError(msg)
-        url += f"&sort={sort}"
-    if field != None:
-        url += f"&field={field}"
-    if idtype != None:
-        url += f"&idtype={idtype}"
+    if sort is not None and sort not in ['pub_date', 'Author', 'JournalName', 'relevance']:
+        params['sort'] = sort
+        msg = f"The {sort} is not a valid sort method!!"
+        logging.error(msg=msg)
+        raise ValueError(msg)
+    
     if datetype != None:
         logging.info("Checking if the datetype is valid")
         request_for_datetype = dict(json.loads(einfo(entrez_database='pubmed',retmode='json').content)).get("einforesult").get("dbinfo")[0].get("fieldlist")
         list_of_datetype = [dicionario.get("name").lower() for dicionario in request_for_datetype]
-        if datetype != None and datetype not in list_of_datetype:
+        if datetype not in list_of_datetype:
             msg = f"The {datetype} is not a valid datetype!!"
             logging.error(msg=msg)
             raise ValueError(msg)
-        url += f"&datetype={datetype}"
-    if reldate != None:
-        url += f"&reldate={reldate}"
-    if mindate != None:
-        url += f"&mindate={mindate}"
-    if maxdate != None:
-        url += f"&maxdate={maxdate}"
-    if use_history:
-        url += '&usehistory=y'
+
+    
+    # Necessary url
+    url = BASE_URL_ESEARCH
+
+    # Necessary params
+    params = {'db':database,'term':term}
+
+    # Optional params
+    ## History Server
+    params['usehistory'] = 'y' if use_history else None
+    params['WebEnv'] = WebEnv
+    params['query_key'] = query_key
+    ## Retrivial
+    params['retstart'] = retstart
+    params['retmax'] = retmax if 20 < retmax <= 10000 else None
+    params['rettype'] = rettype
+    params['retmode'] = retmode
+    params['sort'] = sort
+    params['field'] = field
+    params['idtype'] = idtype
+    ## Date
+    params['datetype'] = datetype
+    params['reldate'] = reldate
+    params['mindate'] = mindate
+    params['maxdate'] = maxdate
+
+    params = {key: value for key, value in params.items() if value is not None}
     
     # Request
     try:
-        response = requests.get(url=url)
+        response = requests.get(url=url,params=params)
         response.raise_for_status()
         logging.info("Resquest successfull!!")
         return response
     except requests.exceptions.RequestException as e:
-        logging.error(f"An error occurred: {e}")
-        return None
+        logging.error(f"An request error occurred: {e}")
+        raise e
+    except Exception as e:
+        logging.error(f"An Unexpected error occurred: {e}")
+        raise e
     
 def efetch(database:str,
-           id:str,
+           id:list,
            query_key:int=None,
            WebEnv:str=None,
            retmode:str=None,
@@ -318,32 +317,29 @@ def efetch(database:str,
         4 - minimal pub-set
     '''
     logging.info("Building the essencial url")
-    url = f'{BASE_URL_EFETCH}?db={database}&id={id}'
+    params = {'db':database,
+              'id':id}
+    url = BASE_URL_EFETCH
 
     logging.info("Building a optional features")
-    if query_key != None:
-        url += f"&query_key={query_key}"
-    if WebEnv != None:
-        url +=f"&WebEnv={WebEnv}"
-    if retmode != None:
-        url += f"&retmode={retmode}"
-    if rettype != None:
-        url += f"&rettype={rettype}"
-    if retstart != None:
-        url += f"&retstart={retstart}"
-    if retmax != None:
-        url += f"&retmax={retmax}"
-    if strand != None:
-        url += f"&strand={strand}"
-    if seq_start != None:
-        url += f"&seq_start={seq_start}"
-    if seq_stop != None:
-        url += f"&seq_stop={seq_stop}"
+    optional_params = {
+        'query_key': query_key,
+        'WebEnv': WebEnv,
+        'retmode': retmode,
+        'rettype': rettype,
+        'retstart': retstart,
+        'retmax': retmax,
+        'strand': strand,
+        'seq_start': seq_start,
+        'seq_stop': seq_stop
+    }
+
+    params.update({k: v for k, v in optional_params.items() if v is not None})
 
     # Request
     logging.info("Trying request")
     try:
-        response = requests.get(url=url)
+        response = requests.get(url=url,params=params)
         response.raise_for_status()
         logging.info("Resquest successfull!!")
         return response

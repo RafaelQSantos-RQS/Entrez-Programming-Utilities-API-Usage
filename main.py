@@ -1,8 +1,17 @@
-from modules.ncbi import esearch,efetch
+from modules.utilities import prepare_data_filesystem
+from logging import basicConfig,INFO
+from modules.ncbi import esearch,efetch,einfo
 
-#response_esearch = esearch(database='pubmed',term='zika+virus[title]',reldate=60,datetype='edat',retmax=100, use_history=True).text
-#print(response_esearch)
+basicConfig(level=INFO, format=f'%(asctime)s: %(message)s',datefmt='%d/%m/%Y %H:%M:%S')
 
-#response_efetch = efetch(database='nuccore',id='38149274',rettype='gbc',retmode='xml')
-#with open('data/raw/teste.xml','w') as file:
-#    file.write(response_efetch.text)
+def main():
+    prepare_data_filesystem()
+
+    einfo(entrez_database='nuccore',retmode='json',save_in='.')
+
+    response_efetch = efetch(database='nuccore',id=['38149274'],rettype='gbc',retmode='text')
+    with open('data/raw/teste.txt','w') as file:
+        file.write(response_efetch.text)
+
+if __name__ == "__main__":
+    main()
